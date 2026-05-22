@@ -141,21 +141,28 @@ func (s *Service) Upload(ctx context.Context, projectID string, request UploadRe
 		return UploadResult{}, err
 	}
 
-	upload, err = s.repo.UpdateUploadStatus(ctx, upload.ID, UploadStatusUploaded, s.clock.Now())
+	updatedUpload, err := s.repo.UpdateUploadStatus(ctx, upload.ID, UploadStatusUploaded, s.clock.Now())
 	if err != nil {
+		_ = s.storage.Delete(ctx, upload.StorageKey)
 		_ = s.jobs.DeleteJob(ctx, job.ID)
+		_ = s.repo.DeleteUpload(ctx, upload.ID)
 		return UploadResult{}, err
 	}
+	upload = updatedUpload
 
 	job, err = s.jobs.Transition(ctx, job.ID, processing.JobStatusCreated, processing.JobStatusUploaded)
 	if err != nil {
+		_ = s.storage.Delete(ctx, upload.StorageKey)
 		_ = s.jobs.DeleteJob(ctx, job.ID)
+		_ = s.repo.DeleteUpload(ctx, upload.ID)
 		return UploadResult{}, err
 	}
 
 	job, err = s.jobs.Transition(ctx, job.ID, processing.JobStatusUploaded, processing.JobStatusQueued)
 	if err != nil {
+		_ = s.storage.Delete(ctx, upload.StorageKey)
 		_ = s.jobs.DeleteJob(ctx, job.ID)
+		_ = s.repo.DeleteUpload(ctx, upload.ID)
 		return UploadResult{}, err
 	}
 

@@ -122,8 +122,9 @@ func (f fakeProjects) GetProject(_ context.Context, projectID string) (workspace
 }
 
 type fakeObjectStorage struct {
-	putErr  error
-	lastKey string
+	putErr      error
+	lastKey     string
+	deletedKeys []string
 }
 
 func (f *fakeObjectStorage) Put(_ context.Context, key string, body io.Reader, _ storage.ObjectMeta) (storage.StoredObject, error) {
@@ -137,6 +138,11 @@ func (f *fakeObjectStorage) Put(_ context.Context, key string, body io.Reader, _
 
 func (f *fakeObjectStorage) Get(_ context.Context, key string) (io.ReadCloser, error) {
 	return nil, nil
+}
+
+func (f *fakeObjectStorage) Delete(_ context.Context, key string) error {
+	f.deletedKeys = append(f.deletedKeys, key)
+	return nil
 }
 
 type fixedClock struct{ now time.Time }
@@ -179,3 +185,40 @@ func (r *failingUploadRepo) GetUpload(_ context.Context, uploadID string) (uploa
 }
 
 func (r *failingUploadRepo) DeleteUpload(_ context.Context, _ string) error { return nil }
+
+func TestUploadDBFailureAfterStorageDeletesStoredObject(t *testing.T) {
+	jobRepo := processing.NewMemoryRepository()
+	objectStorage := &fakeObjectStorage{}
+	service := uploads.NewService(
+		fakeProjects{project: workspace.Project{ID: "prj-001", WorkspaceID: "ws-001", Name: "Project One"}},
+		&failingUploadRepo{updateErr: errors.New("db failed")},
+		objectStorage,
+		processing.NewService(jobRepo, fixedClock{now: time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC)}, &sequenceIDs{ids: []string{"job-001"}}),
+		fixedClock{now: time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC)},
+		&sequenceIDs{ids: []string{"up-001"}},
+	)
+
+	_, err := service.Upload(context.Background(), "prj-001", uploads.UploadRequest{
+		Filename:    "diagram.png",
+		ContentType: "image/png",
+		SizeBytes:   4,
+		Body:        bytes.NewBufferString("data"),
+	})
+	if err == nil {
+		t.Fatal("expected upload failure")
+	}
+
+	if len(objectStorage.deletedKeys) != 1 {
+		t.Fatalf("expected one delete call, got %d", len(objectStorage.deletedKeys))
+	}
+	if objectStorage.deletedKeys[0] != "workspaces/ws-001/uploads/up-001/v1/source.png" {
+		t.Fatalf("unexpected deleted key %q", objectStorage.deletedKeys[0])
+	}
+
+	if _, err := jobRepo.GetJob(context.Background(), "job-001"); !errors.Is(err, processing.ErrJobNotFound) {
+		t.Fatalf("expected job cleanup, got %v", err)
+	}
+	if _, err := (&failingUploadRepo{}).GetUpload(context.Background(), "up-001"); err == nil {
+		t.Fatal("expected missing upload lookup in empty repo stub")
+	}
+}

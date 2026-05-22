@@ -41,3 +41,10 @@ func (b *memoryBucket) Get(_ context.Context, key string) (io.ReadCloser, error)
 	}
 	return io.NopCloser(bytes.NewReader(payload)), nil
 }
+
+func (b *memoryBucket) Delete(_ context.Context, key string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.objects, key)
+	return nil
+}

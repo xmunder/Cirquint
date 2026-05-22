@@ -24,11 +24,13 @@ type StoredObject struct {
 type ObjectStorage interface {
 	Put(ctx context.Context, key string, body io.Reader, meta ObjectMeta) (StoredObject, error)
 	Get(ctx context.Context, key string) (io.ReadCloser, error)
+	Delete(ctx context.Context, key string) error
 }
 
 type Bucket interface {
 	Put(ctx context.Context, key string, body io.Reader, meta ObjectMeta) (StoredObject, error)
 	Get(ctx context.Context, key string) (io.ReadCloser, error)
+	Delete(ctx context.Context, key string) error
 }
 
 type R2Storage struct {
@@ -45,6 +47,10 @@ func (s *R2Storage) Put(ctx context.Context, key string, body io.Reader, meta Ob
 
 func (s *R2Storage) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 	return s.bucket.Get(ctx, key)
+}
+
+func (s *R2Storage) Delete(ctx context.Context, key string) error {
+	return s.bucket.Delete(ctx, key)
 }
 
 func UploadObjectKey(workspaceID, uploadID, filename string) string {
