@@ -9,11 +9,11 @@
 | Chained PRs recommended | Yes |
 | Suggested split | PR1 base + PR2 ingestion + PR3 worker/review |
 | Delivery strategy | ask-on-risk |
-| Chain strategy | pending |
+| Chain strategy | feature-branch-chain |
 
-Decision needed before apply: Yes
+Decision needed before apply: No
 Chained PRs recommended: Yes
-Chain strategy: pending
+Chain strategy: feature-branch-chain
 400-line budget risk: High
 
 ### Suggested Work Units
@@ -26,9 +26,9 @@ Chain strategy: pending
 
 ## Phase 1: Base MVP
 
-- [ ] 1.1 Crear `backend/cmd/api/main.go` y `backend/internal/workspace/` con `POST /workspaces` y `POST /workspaces/{workspaceID}/projects` para cumplir `workspace-projects/spec.md`.
-- [ ] 1.2 Crear `backend/migrations/` para `workspaces`, `projects`, `uploads`, `processing_jobs`, `extraction_revisions` y `circuit_revisions` con claves de ownership y unicidad por job/artifact.
-- [ ] 1.3 Agregar tests de contrato/golden para creación mínima de proyecto y rechazo de upload sin `project_id` válido.
+- [x] 1.1 Crear `backend/cmd/api/main.go` y `backend/internal/workspace/` con `POST /workspaces` y `POST /workspaces/{workspaceID}/projects` para cumplir `workspace-projects/spec.md`.
+- [x] 1.2 Crear `backend/migrations/` para `workspaces`, `projects`, `uploads`, `processing_jobs`, `extraction_revisions` y `circuit_revisions` con claves de ownership y unicidad por job/artifact.
+- [x] 1.3 Agregar tests de contrato/golden para creación mínima de proyecto y rechazo de upload sin `project_id` válido.
 
 ## Phase 2: Ingestion Vertical Slice
 

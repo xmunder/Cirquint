@@ -1,0 +1,19 @@
+project:
+  name: cirquint
+  language: go
+
+commands:
+  test:
+    - "cd backend && go test ./..."
+  format:
+    - "cd backend && gofmt -w ./..."
+  verify:
+    - "cd backend && go test ./..."
+
+paths:
+  changes: "openspec/changes"
+  docs: "docs"
+  backend: "backend"
+
+quality:
+  require_tests: true
