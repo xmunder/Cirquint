@@ -4,7 +4,7 @@
 - **Cambio:** `circuit-ingestion-pipeline-mvp`
 - **Estrategia de entrega:** `ask-on-risk`
 - **Chain strategy:** `feature-branch-chain`
-- **Estado actual:** `slice-1-completed`
+- **Estado actual:** `slice-2-completed`
 
 ## Slice 1 implementado
 
@@ -49,14 +49,53 @@
 
 ## Próximo slice recomendado
 
-### Slice 2 / PR2
+## Slice 2 implementado
 
-- adapter real de `ObjectStorage`
-- generación de keys para R2
-- persistencia de metadata de uploads
-- creación de `processing_jobs`
-- estados `created -> uploaded -> queued`
-- endpoint `GET /jobs/{jobID}`
+**Boundary:** upload vertical slice con storage adapter, metadata persistence, job polling y compensación de fallos sin worker.
+
+### Implementado
+
+- adapter concreto `R2Storage` sobre bucket interface y generación de keys `workspaces/{workspaceId}/uploads/{uploadId}/v1/source.{ext}`
+- repos in-memory para `uploads` y `processing_jobs` respetando boundaries del monolito modular
+- servicio `uploads` que valida imagen, persiste metadata, sube binario y mueve job por `created -> uploaded -> queued`
+- endpoint `POST /projects/{projectID}/uploads` con multipart `file`
+- endpoint `GET /jobs/{jobID}` para polling de estado persistido
+- tests unitarios para key generation y transitions
+- tests con fakes para fallos de storage/DB garantizando que no quedan jobs `queued` huérfanos
+
+### Archivos principales
+
+- `backend/internal/storage/storage.go`
+- `backend/internal/storage/storage_test.go`
+- `backend/internal/uploads/uploads.go`
+- `backend/internal/uploads/memory_repository.go`
+- `backend/internal/uploads/uploads_test.go`
+- `backend/internal/processing/processing.go`
+- `backend/internal/processing/memory_repository.go`
+- `backend/internal/processing/processing_test.go`
+- `backend/internal/server/server.go`
+- `backend/internal/server/memory_bucket.go`
+- `backend/internal/server/server_test.go`
+- `backend/internal/server/testdata/job_status_queued.golden`
+
+### Verificación ejecutada
+
+- `gofmt -w ./cmd ./internal`
+- `cd backend && go test ./...`
+
+### Hallazgos
+
+- el contrato HTTP de upload necesitaba `multipart/form-data`; los tests fallaban si el part no seteaba `Content-Type`
+- para mantener el slice reviewable no se introdujo DB real ni cola real; la persistencia sigue detrás de repos/adapters listos para reemplazo
+
+## Próximo slice recomendado
+
+### Slice 3 / PR3
+
+- worker que reclama solo jobs `queued`
+- boundary del provider de extracción
+- persistencia de `ExtractionResult` y `CircuitSpec`
+- resolución `ready | needs_review | failed`
 
 ## Notas
 
