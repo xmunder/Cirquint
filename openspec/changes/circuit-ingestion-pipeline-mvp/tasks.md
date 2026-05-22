@@ -32,10 +32,10 @@ Chain strategy: feature-branch-chain
 
 ## Phase 2: Ingestion Vertical Slice
 
-- [ ] 2.1 Crear `backend/internal/storage/` con `ObjectStorage` y adapter R2 que emita keys `workspaces/{workspaceId}/...` según `design.md`.
-- [ ] 2.2 Crear `backend/internal/uploads/` para validar imagen, persistir metadata, subir binario y crear job con estados `created -> uploaded -> queued`.
-- [ ] 2.3 Exponer `POST /projects/{projectID}/uploads` y `GET /jobs/{jobID}` en `backend/cmd/api/main.go` con payloads alineados a `circuit-image-ingestion/spec.md`.
-- [ ] 2.4 Escribir tests unitarios para generación de keys/estados y tests de integración con fakes para asegurar que falla de DB o storage no deja jobs `queued` huérfanos.
+- [x] 2.1 Crear `backend/internal/storage/` con `ObjectStorage` y adapter R2 que emita keys `workspaces/{workspaceId}/...` según `design.md`.
+- [x] 2.2 Crear `backend/internal/uploads/` para validar imagen, persistir metadata, subir binario y crear job con estados `created -> uploaded -> queued`.
+- [x] 2.3 Exponer `POST /projects/{projectID}/uploads` y `GET /jobs/{jobID}` en `backend/cmd/api/main.go` con payloads alineados a `circuit-image-ingestion/spec.md`.
+- [x] 2.4 Escribir tests unitarios para generación de keys/estados y tests de integración con fakes para asegurar que falla de DB o storage no deja jobs `queued` huérfanos.
 
 ## Phase 3: Extraction and Review Slice
 
