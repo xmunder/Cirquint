@@ -23,6 +23,7 @@ type Dependencies struct {
 	UploadSvc     *uploads.Service
 	JobRepo       processing.Repository
 	JobSvc        *processing.Service
+	Queue         processing.Queue
 	ObjectStorage storage.ObjectStorage
 	Identity      identity.Middleware
 	Clock         platform.Clock
@@ -59,6 +60,9 @@ func New(deps Dependencies) http.Handler {
 	if jobSvc == nil {
 		jobSvc = processing.NewService(jobRepo, clock, idGenerator)
 	}
+	if deps.Queue != nil {
+		jobSvc = jobSvc.WithQueue(deps.Queue)
+	}
 
 	uploadRepo := deps.UploadRepo
 	if uploadRepo == nil {
@@ -67,7 +71,7 @@ func New(deps Dependencies) http.Handler {
 
 	objectStorage := deps.ObjectStorage
 	if objectStorage == nil {
-		objectStorage = storage.NewR2Storage(newMemoryBucket())
+		objectStorage = NewMemoryObjectStorage()
 	}
 
 	uploadSvc := deps.UploadSvc
