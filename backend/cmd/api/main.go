@@ -11,15 +11,23 @@ import (
 )
 
 var listenAndServe = http.ListenAndServe
+var handlerFactory = newHandler
 
-func newHandler(cfg config.Config) http.Handler {
+func newHandler(cfg config.Config) (http.Handler, error) {
+	if err := cfg.ValidateSharedRuntime(); err != nil {
+		return nil, err
+	}
+
 	return server.New(server.Dependencies{
 		Queue: processing.NewRedisQueue(cfg.RedisAddr, cfg.RedisQueueKey),
-	})
+	}), nil
 }
 
 func run(cfg config.Config, serve func(string, http.Handler) error, logger *log.Logger) error {
-	handler := newHandler(cfg)
+	handler, err := handlerFactory(cfg)
+	if err != nil {
+		return err
+	}
 	logger.Printf("api listening on %s", cfg.HTTPAddr)
 	return serve(cfg.HTTPAddr, handler)
 }

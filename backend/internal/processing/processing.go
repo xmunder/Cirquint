@@ -50,6 +50,7 @@ type Queue interface {
 type Repository interface {
 	CreateJob(ctx context.Context, job Job) error
 	UpdateJobStatus(ctx context.Context, jobID string, from, to JobStatus, updatedAt time.Time) (Job, error)
+	ListJobsByProjectStatus(ctx context.Context, projectID string, status JobStatus) ([]Job, error)
 	GetJob(ctx context.Context, jobID string) (Job, error)
 	DeleteJob(ctx context.Context, jobID string) error
 }
@@ -132,6 +133,17 @@ func (s *Service) MarkCompleted(ctx context.Context, jobID string, status JobSta
 
 func (s *Service) MarkFailed(ctx context.Context, jobID string) (Job, error) {
 	return s.Transition(ctx, jobID, JobStatusExtracting, JobStatusFailed)
+}
+
+func (s *Service) ResolveReview(ctx context.Context, jobID string, status JobStatus) (Job, error) {
+	if status != JobStatusReady && status != JobStatusFailed {
+		return Job{}, ErrInvalidStatusTransition
+	}
+	return s.Transition(ctx, jobID, JobStatusNeedsReview, status)
+}
+
+func (s *Service) ListByProjectStatus(ctx context.Context, projectID string, status JobStatus) ([]Job, error) {
+	return s.repo.ListJobsByProjectStatus(ctx, projectID, status)
 }
 
 func (s *Service) GetJob(ctx context.Context, jobID string) (Job, error) {

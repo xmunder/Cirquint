@@ -24,7 +24,11 @@ type runner interface {
 	ProcessUntilEmpty(context.Context) error
 }
 
-func buildRunner(cfg config.Config) runner {
+func buildRunner(cfg config.Config) (runner, error) {
+	if err := cfg.ValidateSharedRuntime(); err != nil {
+		return nil, err
+	}
+
 	clock := platform.SystemClock{}
 	idGen := platform.RandomIDGenerator{}
 	queue := processing.NewRedisQueue(cfg.RedisAddr, cfg.RedisQueueKey)
@@ -32,7 +36,7 @@ func buildRunner(cfg config.Config) runner {
 	uploadRepo := uploads.NewMemoryRepository()
 	objectStorage := server.NewMemoryObjectStorage()
 	circuitSvc := circuit.NewService(circuit.NewMemoryRepository(), objectStorage, clock, idGen, cfg.ReviewMinConfidence)
-	return worker.NewRunner(jobs, uploadRepo, objectStorage, provider.UnconfiguredProvider{}, circuitSvc)
+	return worker.NewRunner(jobs, uploadRepo, objectStorage, provider.UnconfiguredProvider{}, circuitSvc), nil
 }
 
 func run(ctx context.Context, runner runner) error {
@@ -44,7 +48,11 @@ func run(ctx context.Context, runner runner) error {
 }
 
 func execute() error {
-	return runnerExec(context.Background(), runnerFactory(config.Load()))
+	runner, err := runnerFactory(config.Load())
+	if err != nil {
+		return err
+	}
+	return runnerExec(context.Background(), runner)
 }
 
 func main() {

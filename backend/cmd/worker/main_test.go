@@ -42,6 +42,11 @@ func TestExecuteUsesConfiguredRunner(t *testing.T) {
 	t.Setenv("REDIS_ADDR", "redis:6379")
 	t.Setenv("REDIS_QUEUE_KEY", "jobs")
 	t.Setenv("REVIEW_MIN_CONFIDENCE", "0.9")
+	t.Setenv("DATABASE_URL", "postgres://app:secret@db.internal:5432/cirquint")
+	t.Setenv("OBJECT_STORAGE_BUCKET", "cirquint-dev")
+	t.Setenv("OBJECT_STORAGE_ENDPOINT", "https://r2.example.com")
+	t.Setenv("OBJECT_STORAGE_ACCESS_KEY", "access-key")
+	t.Setenv("OBJECT_STORAGE_SECRET_KEY", "secret-key")
 
 	originalFactory := runnerFactory
 	originalExec := runnerExec
@@ -51,11 +56,17 @@ func TestExecuteUsesConfiguredRunner(t *testing.T) {
 	})
 
 	stub := &stubRunner{}
-	runnerFactory = func(cfg config.Config) runner {
+	runnerFactory = func(cfg config.Config) (runner, error) {
 		if cfg.RedisAddr != "redis:6379" || cfg.RedisQueueKey != "jobs" || cfg.ReviewMinConfidence != 0.9 {
 			t.Fatalf("unexpected config %+v", cfg)
 		}
-		return stub
+		if cfg.DatabaseURL != "postgres://app:secret@db.internal:5432/cirquint" {
+			t.Fatalf("DatabaseURL = %q, want loaded env", cfg.DatabaseURL)
+		}
+		if cfg.ObjectStorage.Bucket != "cirquint-dev" {
+			t.Fatalf("ObjectStorage.Bucket = %q, want loaded env", cfg.ObjectStorage.Bucket)
+		}
+		return stub, nil
 	}
 	runnerExec = func(ctx context.Context, got runner) error {
 		if got != stub {
@@ -70,6 +81,11 @@ func TestExecuteUsesConfiguredRunner(t *testing.T) {
 }
 
 func TestMainReturnsWhenExecuteSucceeds(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://app:secret@db.internal:5432/cirquint")
+	t.Setenv("OBJECT_STORAGE_BUCKET", "cirquint-dev")
+	t.Setenv("OBJECT_STORAGE_ENDPOINT", "https://r2.example.com")
+	t.Setenv("OBJECT_STORAGE_ACCESS_KEY", "access-key")
+	t.Setenv("OBJECT_STORAGE_SECRET_KEY", "secret-key")
 	originalFactory := runnerFactory
 	originalExec := runnerExec
 	t.Cleanup(func() {
@@ -77,7 +93,7 @@ func TestMainReturnsWhenExecuteSucceeds(t *testing.T) {
 		runnerExec = originalExec
 	})
 
-	runnerFactory = func(config.Config) runner { return &stubRunner{} }
+	runnerFactory = func(config.Config) (runner, error) { return &stubRunner{}, nil }
 	called := false
 	runnerExec = func(context.Context, runner) error {
 		called = true
@@ -91,12 +107,33 @@ func TestMainReturnsWhenExecuteSucceeds(t *testing.T) {
 }
 
 func TestBuildRunnerUsesConfiguredRedisAddress(t *testing.T) {
-	runner := buildRunner(config.Config{RedisAddr: "127.0.0.1:0", RedisQueueKey: "jobs", ReviewMinConfidence: 0.9})
-	err := run(context.Background(), runner)
+	runner, err := buildRunner(config.Config{
+		RedisAddr:           "127.0.0.1:0",
+		RedisQueueKey:       "jobs",
+		ReviewMinConfidence: 0.9,
+		DatabaseURL:         "postgres://app:secret@db.internal:5432/cirquint",
+		ObjectStorage: config.ObjectStorageConfig{
+			Bucket:    "cirquint-dev",
+			Endpoint:  "https://r2.example.com",
+			AccessKey: "access-key",
+			SecretKey: "secret-key",
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildRunner error = %v", err)
+	}
+	err = run(context.Background(), runner)
 	if err == nil {
 		t.Fatal("expected dequeue error from configured redis address")
 	}
 	if !strings.Contains(err.Error(), "127.0.0.1:0") {
 		t.Fatalf("error = %q, want redis address in error", err.Error())
+	}
+}
+
+func TestBuildRunnerRejectsMissingSharedRuntimeConfig(t *testing.T) {
+	_, err := buildRunner(config.Config{RedisAddr: "redis:6379", RedisQueueKey: "jobs", ReviewMinConfidence: 0.9})
+	if !errors.Is(err, config.ErrDatabaseURLRequired) {
+		t.Fatalf("buildRunner error = %v, want %v", err, config.ErrDatabaseURLRequired)
 	}
 }

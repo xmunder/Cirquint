@@ -2,6 +2,7 @@ package processing_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -124,6 +125,94 @@ func TestQueueOptionalHelpers(t *testing.T) {
 	}
 	if _, err := svc.GetJob(context.Background(), job.ID); err != processing.ErrJobNotFound {
 		t.Fatalf("get deleted job error = %v, want %v", err, processing.ErrJobNotFound)
+	}
+}
+
+func TestResolveReviewTransitionsNeedsReviewToReadyAndFailed(t *testing.T) {
+	t.Run("ready", func(t *testing.T) {
+		repo := processing.NewMemoryRepository()
+		svc := processing.NewService(repo, fixedClock{now: time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC)}, fixedIDGenerator{id: "job-001"})
+		job := createNeedsReviewJob(t, svc)
+
+		resolved, err := svc.ResolveReview(context.Background(), job.ID, processing.JobStatusReady)
+		if err != nil {
+			t.Fatalf("ResolveReview error = %v", err)
+		}
+		if resolved.Status != processing.JobStatusReady {
+			t.Fatalf("resolved status = %s, want %s", resolved.Status, processing.JobStatusReady)
+		}
+	})
+
+	t.Run("failed", func(t *testing.T) {
+		repo := processing.NewMemoryRepository()
+		svc := processing.NewService(repo, fixedClock{now: time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC)}, fixedIDGenerator{id: "job-001"})
+		job := createNeedsReviewJob(t, svc)
+
+		resolved, err := svc.ResolveReview(context.Background(), job.ID, processing.JobStatusFailed)
+		if err != nil {
+			t.Fatalf("ResolveReview error = %v", err)
+		}
+		if resolved.Status != processing.JobStatusFailed {
+			t.Fatalf("resolved status = %s, want %s", resolved.Status, processing.JobStatusFailed)
+		}
+	})
+}
+
+func TestResolveReviewRejectsInvalidTarget(t *testing.T) {
+	repo := processing.NewMemoryRepository()
+	svc := processing.NewService(repo, fixedClock{now: time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC)}, fixedIDGenerator{id: "job-001"})
+	job := createNeedsReviewJob(t, svc)
+
+	_, err := svc.ResolveReview(context.Background(), job.ID, processing.JobStatusQueued)
+	if !errors.Is(err, processing.ErrInvalidStatusTransition) {
+		t.Fatalf("ResolveReview error = %v, want %v", err, processing.ErrInvalidStatusTransition)
+	}
+}
+
+func TestListJobsByProjectStatusFiltersByProjectAndStatus(t *testing.T) {
+	repo := processing.NewMemoryRepository()
+	svc := processing.NewService(repo, fixedClock{now: time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC)}, fixedIDGenerator{id: "job-001"})
+	ready := createNeedsReviewJob(t, svc)
+	if _, err := svc.ResolveReview(context.Background(), ready.ID, processing.JobStatusReady); err != nil {
+		t.Fatalf("ResolveReview ready error = %v", err)
+	}
+	createNeedsReviewJobWithID(t, repo, "job-002", "prj-001", processing.JobStatusNeedsReview)
+	createNeedsReviewJobWithID(t, repo, "job-003", "prj-002", processing.JobStatusNeedsReview)
+
+	jobs, err := svc.ListByProjectStatus(context.Background(), "prj-001", processing.JobStatusNeedsReview)
+	if err != nil {
+		t.Fatalf("ListByProjectStatus error = %v", err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("len(jobs) = %d, want 1", len(jobs))
+	}
+	if jobs[0].ID != "job-002" {
+		t.Fatalf("jobs[0].ID = %s, want job-002", jobs[0].ID)
+	}
+}
+
+func createNeedsReviewJob(t *testing.T, svc *processing.Service) processing.Job {
+	t.Helper()
+	job, err := svc.CreateJob(context.Background(), "ws-001", "prj-001", "up-001", 1)
+	if err != nil {
+		t.Fatalf("CreateJob error = %v", err)
+	}
+	job, err = svc.Transition(context.Background(), job.ID, processing.JobStatusCreated, processing.JobStatusExtracting)
+	if err != nil {
+		t.Fatalf("transition to extracting: %v", err)
+	}
+	job, err = svc.MarkCompleted(context.Background(), job.ID, processing.JobStatusNeedsReview)
+	if err != nil {
+		t.Fatalf("MarkCompleted needs_review error = %v", err)
+	}
+	return job
+}
+
+func createNeedsReviewJobWithID(t *testing.T, repo *processing.MemoryRepository, jobID, projectID string, status processing.JobStatus) {
+	t.Helper()
+	now := time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC)
+	if err := repo.CreateJob(context.Background(), processing.Job{ID: jobID, WorkspaceID: "ws-001", ProjectID: projectID, UploadID: "up-001", Status: status, Payload: processing.Payload{JobID: jobID, ProjectID: projectID, UploadID: "up-001", UploadVersion: 1}, CreatedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatalf("CreateJob error = %v", err)
 	}
 }
 
