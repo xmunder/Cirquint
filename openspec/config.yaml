@@ -1,0 +1,50 @@
+project:
+  name: cirquint
+  language: go
+
+strict_tdd: true
+
+commands:
+  test:
+    - "cd backend && go test ./..."
+  format:
+    - "cd backend && gofmt -w ./..."
+  verify:
+    - "cd backend && go test ./..."
+
+paths:
+  changes: "openspec/changes"
+  docs: "docs"
+  backend: "backend"
+
+testing:
+  detected: "2026-05-25"
+  test_runner:
+    framework: "go test"
+    command: "cd backend && go test ./..."
+  layers:
+    unit:
+      available: true
+      tool: "go test"
+    integration:
+      available: true
+      tool: "net/http/httptest"
+    e2e:
+      available: false
+      tool: "—"
+  coverage:
+    available: true
+    command: "cd backend && go test -cover ./..."
+  quality:
+    linter:
+      available: false
+      command: "—"
+    type_checker:
+      available: true
+      command: "cd backend && go vet ./..."
+    formatter:
+      available: true
+      command: "cd backend && gofmt -w ./..."
+
+quality:
+  require_tests: true

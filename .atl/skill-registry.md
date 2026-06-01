@@ -1,6 +1,6 @@
 # Skill Registry
 
-**Delegator use only.** This repo is currently docs-only; no project-specific skill registry or root convention file was present at init time.
+**Delegator use only.** This registry captures project conventions and SDD-adjacent docs for the cirquint backend scaffold.
 
 ## User Skills
 
@@ -23,8 +23,11 @@ None.
 | ADR-006 | `docs/adr/ADR-006-revision-manual-ante-baja-confianza.md` | Manual review on low-confidence extraction |
 | Architecture summary | `docs/architecture/arquitectura-decisiones.md` | Primary architecture summary and constraints |
 | Architecture summary | `docs/architecture/decisiones-de-arquitectura.md` | Alternate architecture summary with same core stack |
+| OpenSpec config | `openspec/config.yaml` | SDD bootstrap config; contains Go test command discovery and strict TDD flag |
+| SDD exploration | `docs/sdd/circuit-ingestion-pipeline-mvp/exploration.md` | Early exploration of the backend-first slice and pipeline risks |
 
 ## Notes
 
 - No root-level `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.cursorrules`, or `copilot-instructions.md` was found.
-- The repo currently contains documentation only; there is no application scaffold yet.
+- The repo now has a Go backend scaffold under `backend/` with API, worker, and internal packages.
+- Testing style is Go-native: unit tests, `net/http/httptest` contract tests, golden files, and in-memory fakes.
