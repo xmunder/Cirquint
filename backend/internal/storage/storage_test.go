@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"path/filepath"
 	"testing"
 
 	"github.com/msi/circuit-storys/backend/internal/storage"
@@ -78,5 +79,29 @@ func TestR2StorageDelegatesToBucket(t *testing.T) {
 	}
 	if bucket.deleteKey != "key-1" {
 		t.Fatalf("Delete key = %q, want key-1", bucket.deleteKey)
+	}
+}
+
+func TestFilesystemObjectStorageSharesObjectsAcrossInstances(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "objects")
+	writer := storage.NewFilesystemObjectStorage(root)
+	reader := storage.NewFilesystemObjectStorage(root)
+
+	if _, err := writer.Put(context.Background(), "workspaces/ws-001/uploads/up-001/v1/source.png", bytes.NewBufferString("payload"), storage.ObjectMeta{}); err != nil {
+		t.Fatalf("Put error = %v", err)
+	}
+
+	body, err := reader.Get(context.Background(), "workspaces/ws-001/uploads/up-001/v1/source.png")
+	if err != nil {
+		t.Fatalf("Get error = %v", err)
+	}
+	defer body.Close()
+
+	payload, err := io.ReadAll(body)
+	if err != nil {
+		t.Fatalf("ReadAll error = %v", err)
+	}
+	if string(payload) != "payload" {
+		t.Fatalf("payload = %q, want %q", string(payload), "payload")
 	}
 }

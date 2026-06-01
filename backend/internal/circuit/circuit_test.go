@@ -114,6 +114,58 @@ func TestPersistIsIdempotentForJob(t *testing.T) {
 	}
 }
 
+func TestPersistHighConfidenceExtractionBecomesReady(t *testing.T) {
+	clock := fixedClock{now: time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC)}
+	ids := &sequenceIDs{ids: []string{"ext-001", "cir-001"}}
+	jobRepo := processing.NewMemoryRepository()
+	storage := server.NewMemoryObjectStorage()
+	service := circuit.NewService(
+		circuit.NewMemoryRepository().WithProcessingRepository(jobRepo),
+		storage,
+		clock,
+		ids,
+		0.8,
+	)
+	jobs := processing.NewService(jobRepo, clock, ids)
+	job := processing.Job{ID: "job-001", WorkspaceID: "ws-001", ProjectID: "prj-001", UploadID: "up-001", Status: processing.JobStatusExtracting}
+	if err := jobRepo.CreateJob(context.Background(), job); err != nil {
+		t.Fatalf("CreateJob error = %v", err)
+	}
+
+	persisted, err := service.Persist(context.Background(), circuit.PersistInput{
+		WorkspaceID: "ws-001",
+		ProjectID:   "prj-001",
+		UploadID:    "up-001",
+		Job:         job,
+		Result:      circuit.ExtractionResult{Provider: "mock", Confidence: 0.92},
+	})
+	if err != nil {
+		t.Fatalf("Persist error = %v", err)
+	}
+	if persisted.Status != processing.JobStatusReady {
+		t.Fatalf("persisted status = %s, want %s", persisted.Status, processing.JobStatusReady)
+	}
+	if persisted.Circuit.Status != circuit.StatusReady {
+		t.Fatalf("circuit status = %s, want %s", persisted.Circuit.Status, circuit.StatusReady)
+	}
+
+	job, err = jobs.MarkCompleted(context.Background(), job.ID, persisted.Status)
+	if err != nil {
+		t.Fatalf("MarkCompleted error = %v", err)
+	}
+	if job.Status != processing.JobStatusReady {
+		t.Fatalf("job status = %s, want %s", job.Status, processing.JobStatusReady)
+	}
+
+	stored := readStoredCircuitSpec(t, storage, persisted.Circuit.ObjectKey)
+	if stored.Status != circuit.StatusReady {
+		t.Fatalf("stored circuit status = %s, want %s", stored.Status, circuit.StatusReady)
+	}
+	if stored.Confidence != 0.92 {
+		t.Fatalf("stored confidence = %v, want 0.92", stored.Confidence)
+	}
+}
+
 func TestListReviewQueueFiltersByProjectAndReviewState(t *testing.T) {
 	env := newReviewEnv(t)
 	queued := env.seedJob(t, "prj-001", 0.4, []string{"ambiguous-node-label"})

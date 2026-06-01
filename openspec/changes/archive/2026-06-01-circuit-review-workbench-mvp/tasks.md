@@ -40,11 +40,15 @@ Chain strategy: feature-branch-chain
 
 ## Phase 3: HTTP Review Workbench Slice
 
-- [ ] 3.1 Add failing API scenarios in `backend/internal/server/server_test.go` for project queue listing, review detail, project scoping, and decision validation/error codes from the specs.
-- [ ] 3.2 Extend `backend/internal/server/server.go` with `GET /projects/{projectID}/circuit-reviews`, `GET /projects/{projectID}/circuit-reviews/{jobID}`, and `POST /projects/{projectID}/circuit-reviews/{jobID}/decision` using `identity.ActorFromContext`.
-- [ ] 3.3 Keep detail responses limited to job, extraction, normalized `CircuitSpec`, confidence, warnings, and review state; explicitly exclude planning/viewer payloads in route serialization.
+- [x] 3.1 Add failing API scenarios in `backend/internal/server/server_test.go` for project queue listing, review detail, project scoping, and decision validation/error codes from the specs.
+- [x] 3.2 Extend `backend/internal/server/server.go` with `GET /projects/{projectID}/circuit-reviews`, `GET /projects/{projectID}/circuit-reviews/{jobID}`, and `POST /projects/{projectID}/circuit-reviews/{jobID}/decision` using `identity.ActorFromContext`.
+- [x] 3.3 Keep detail responses limited to job, extraction, normalized `CircuitSpec`, confidence, warnings, and review state; explicitly exclude planning/viewer payloads in route serialization.
 
 ## Phase 4: Verification And Polish
 
-- [ ] 4.1 Add repository/integration assertions that review decisions leave extraction attempts immutable and preserve prior audit rows across later retries.
-- [ ] 4.2 Run `cd backend && go test ./...` after implementation and update this checklist with completed items during `sdd-apply`.
+- [x] 4.1 Add repository/integration assertions that review decisions leave extraction attempts immutable and preserve prior audit rows across later retries.
+- [x] 4.2 Run `cd backend && go test ./...` after implementation and update this checklist with completed items during `sdd-apply`.
+- [x] 4.3 Wire `sql.DB` bootstrap plus Postgres-backed `processing`/`circuit` repositories into `backend/cmd/api/main.go` and `backend/cmd/worker/main.go`, keeping in-memory defaults only for dependencies that still lack SQL implementations.
+- [x] 4.4 Add focused runtime wiring tests plus one Docker-Postgres worker integration path, then rerun the relevant backend packages serially against `TEST_DATABASE_URL`.
+- [x] 4.5 Add Postgres-backed `workspace`/`uploads` repositories plus a Docker-Postgres API upload -> worker proof that narrows the remaining runtime warning to object storage only.
+- [x] 4.6 Replace the memory-only runtime object storage fallback with shared filesystem-backed storage when `OBJECT_STORAGE_PATH` is configured, then re-verify the upload -> worker -> `needs_review` path against Docker Postgres.

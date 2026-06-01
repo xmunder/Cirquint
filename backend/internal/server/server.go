@@ -6,7 +6,9 @@ import (
 	"mime/multipart"
 	"net/http"
 	"strings"
+	"time"
 
+	"github.com/msi/circuit-storys/backend/internal/circuit"
 	"github.com/msi/circuit-storys/backend/internal/identity"
 	"github.com/msi/circuit-storys/backend/internal/platform"
 	"github.com/msi/circuit-storys/backend/internal/platform/httpjson"
@@ -23,6 +25,8 @@ type Dependencies struct {
 	UploadSvc     *uploads.Service
 	JobRepo       processing.Repository
 	JobSvc        *processing.Service
+	CircuitRepo   circuit.Repository
+	CircuitSvc    *circuit.Service
 	Queue         processing.Queue
 	ObjectStorage storage.ObjectStorage
 	Identity      identity.Middleware
@@ -79,10 +83,20 @@ func New(deps Dependencies) http.Handler {
 		uploadSvc = uploads.NewService(workspaceSvc, uploadRepo, objectStorage, jobSvc, clock, idGenerator)
 	}
 
+	circuitSvc := deps.CircuitSvc
+	if circuitSvc == nil {
+		circuitRepo := deps.CircuitRepo
+		if circuitRepo == nil {
+			circuitRepo = circuit.NewMemoryRepository()
+		}
+		circuitSvc = circuit.NewService(circuitRepo, objectStorage, clock, idGenerator, 0)
+	}
+
 	server := &Server{
 		workspace: workspaceSvc,
 		uploads:   uploadSvc,
 		jobs:      jobSvc,
+		circuits:  circuitSvc,
 	}
 
 	identityMiddleware := deps.Identity
@@ -93,6 +107,7 @@ type Server struct {
 	workspace *workspace.Service
 	uploads   *uploads.Service
 	jobs      *processing.Service
+	circuits  *circuit.Service
 }
 
 func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
@@ -101,12 +116,12 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleCreateWorkspace(w, r)
 	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/workspaces/") && strings.HasSuffix(r.URL.Path, "/projects"):
 		s.handleCreateProject(w, r)
-	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/projects/"):
+	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/projects/") && strings.HasSuffix(r.URL.Path, "/uploads"):
+		s.handleUploadRoute(w, r)
+	case strings.HasPrefix(r.URL.Path, "/projects/"):
 		s.handleProjectRoutes(w, r)
 	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/jobs/"):
 		s.handleJobRoute(w, r)
-	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/projects/") && strings.HasSuffix(r.URL.Path, "/uploads"):
-		s.handleUploadRoute(w, r)
 	default:
 		httpjson.Write(w, http.StatusNotFound, map[string]any{"error": "not found"})
 	}
@@ -158,7 +173,27 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	if len(parts) != 2 || parts[0] != "projects" {
+	if len(parts) < 2 || parts[0] != "projects" {
+		httpjson.Write(w, http.StatusNotFound, map[string]any{"error": "not found"})
+		return
+	}
+
+	if len(parts) == 3 && parts[2] == "circuit-reviews" && r.Method == http.MethodGet {
+		s.handleReviewQueue(w, r, parts[1])
+		return
+	}
+
+	if len(parts) == 4 && parts[2] == "circuit-reviews" && r.Method == http.MethodGet {
+		s.handleReviewDetail(w, r, parts[1], parts[3])
+		return
+	}
+
+	if len(parts) == 5 && parts[2] == "circuit-reviews" && parts[4] == "decision" && r.Method == http.MethodPost {
+		s.handleReviewDecision(w, r, parts[1], parts[3])
+		return
+	}
+
+	if len(parts) != 2 {
 		httpjson.Write(w, http.StatusNotFound, map[string]any{"error": "not found"})
 		return
 	}
@@ -170,6 +205,63 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpjson.Write(w, http.StatusOK, entity)
+}
+
+func (s *Server) handleReviewQueue(w http.ResponseWriter, r *http.Request, projectID string) {
+	items, err := s.circuits.ListReviewQueue(r.Context(), projectID)
+	if err != nil {
+		s.writeReviewError(w, err)
+		return
+	}
+	httpjson.Write(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (s *Server) handleReviewDetail(w http.ResponseWriter, r *http.Request, projectID, jobID string) {
+	detail, err := s.circuits.GetReviewDetail(r.Context(), projectID, jobID)
+	if err != nil {
+		s.writeReviewError(w, err)
+		return
+	}
+	httpjson.Write(w, http.StatusOK, detail)
+}
+
+func (s *Server) handleReviewDecision(w http.ResponseWriter, r *http.Request, projectID, jobID string) {
+	var request struct {
+		CircuitRevisionID string                 `json:"circuit_revision_id"`
+		Decision          circuit.ReviewDecision `json:"decision"`
+		Note              string                 `json:"note"`
+		ReviewedAt        string                 `json:"reviewed_at"`
+		CorrectedSpec     *circuit.CircuitSpec   `json:"corrected_spec"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		httpjson.Write(w, http.StatusBadRequest, map[string]any{"error": "invalid json"})
+		return
+	}
+
+	reviewedAt, err := time.Parse(time.RFC3339, request.ReviewedAt)
+	if err != nil {
+		httpjson.Write(w, http.StatusBadRequest, map[string]any{"error": "invalid reviewed_at"})
+		return
+	}
+
+	actor := identity.ActorFromContext(r.Context())
+	result, err := s.circuits.SubmitReviewDecision(r.Context(), circuit.SubmitReviewDecisionInput{
+		ProjectID:            projectID,
+		JobID:                jobID,
+		CircuitRevisionID:    request.CircuitRevisionID,
+		Decision:             request.Decision,
+		Note:                 request.Note,
+		ReviewerID:           actor.ID,
+		ReviewedAt:           reviewedAt,
+		CorrectedCircuitSpec: request.CorrectedSpec,
+	})
+	if err != nil {
+		s.writeReviewError(w, err)
+		return
+	}
+
+	httpjson.Write(w, http.StatusOK, result)
 }
 
 func (s *Server) handleUploadRoute(w http.ResponseWriter, r *http.Request) {
@@ -239,6 +331,23 @@ func (s *Server) writeJobError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, processing.ErrJobNotFound):
 		httpjson.Write(w, http.StatusNotFound, map[string]any{"error": "job not found"})
+	default:
+		httpjson.Write(w, http.StatusInternalServerError, map[string]any{"error": "internal server error"})
+	}
+}
+
+func (s *Server) writeReviewError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, circuit.ErrInvalidReviewDecision),
+		errors.Is(err, circuit.ErrInvalidReviewNote),
+		errors.Is(err, circuit.ErrInvalidReviewerID),
+		errors.Is(err, circuit.ErrCorrectedSpecNotAllowed),
+		errors.Is(err, circuit.ErrInvalidCircuitSpec):
+		httpjson.Write(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+	case errors.Is(err, circuit.ErrReviewNotFound):
+		httpjson.Write(w, http.StatusNotFound, map[string]any{"error": "review not found"})
+	case errors.Is(err, circuit.ErrStaleReviewRevision), errors.Is(err, circuit.ErrRevisionAlreadyReviewed):
+		httpjson.Write(w, http.StatusConflict, map[string]any{"error": err.Error()})
 	default:
 		httpjson.Write(w, http.StatusInternalServerError, map[string]any{"error": "internal server error"})
 	}

@@ -102,11 +102,15 @@ func (r *PostgresRepository) SaveReviewDecision(ctx context.Context, decision Re
 		}
 	}
 
-	if _, err := tx.ExecContext(ctx, `
+	result, err := tx.ExecContext(ctx, `
 		UPDATE processing_jobs
 		SET status = $1, updated_at = $2
 		WHERE id = $3 AND status = $4
-	`, statusFromCircuit(resolved.Status), resolved.UpdatedAt, decision.JobID, processing.JobStatusNeedsReview); err != nil {
+	`, statusFromCircuit(resolved.Status), resolved.UpdatedAt, decision.JobID, processing.JobStatusNeedsReview)
+	if err != nil {
+		return err
+	}
+	if err := ensureReviewTransition(ctx, tx, result, decision.JobID); err != nil {
 		return err
 	}
 
@@ -168,6 +172,25 @@ func ensureReviewableRevision(ctx context.Context, tx *sql.Tx, projectID, jobID,
 	} else {
 		return err
 	}
+}
+
+func ensureReviewTransition(ctx context.Context, tx *sql.Tx, result sql.Result, jobID string) error {
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected > 0 {
+		return nil
+	}
+
+	row := tx.QueryRowContext(ctx, `SELECT id FROM processing_jobs WHERE id = $1`, jobID)
+	var id string
+	if err := row.Scan(&id); errors.Is(err, sql.ErrNoRows) {
+		return processing.ErrJobNotFound
+	} else if err != nil {
+		return err
+	}
+	return processing.ErrInvalidStatusTransition
 }
 
 type rowScanner interface {

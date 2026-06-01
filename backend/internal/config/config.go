@@ -8,11 +8,11 @@ import (
 )
 
 var (
-	ErrDatabaseURLRequired             = errors.New("database_url is required")
-	ErrObjectStorageBucketRequired     = errors.New("object_storage_bucket is required")
-	ErrObjectStorageEndpointRequired   = errors.New("object_storage_endpoint is required")
-	ErrObjectStorageAccessKeyRequired  = errors.New("object_storage_access_key is required")
-	ErrObjectStorageSecretKeyRequired  = errors.New("object_storage_secret_key is required")
+	ErrDatabaseURLRequired            = errors.New("database_url is required")
+	ErrObjectStorageBucketRequired    = errors.New("object_storage_bucket is required")
+	ErrObjectStorageEndpointRequired  = errors.New("object_storage_endpoint is required")
+	ErrObjectStorageAccessKeyRequired = errors.New("object_storage_access_key is required")
+	ErrObjectStorageSecretKeyRequired = errors.New("object_storage_secret_key is required")
 )
 
 type ObjectStorageConfig struct {
@@ -20,6 +20,7 @@ type ObjectStorageConfig struct {
 	Endpoint  string
 	AccessKey string
 	SecretKey string
+	Path      string
 }
 
 type Config struct {
@@ -63,6 +64,7 @@ func Load() Config {
 			Endpoint:  os.Getenv("OBJECT_STORAGE_ENDPOINT"),
 			AccessKey: os.Getenv("OBJECT_STORAGE_ACCESS_KEY"),
 			SecretKey: os.Getenv("OBJECT_STORAGE_SECRET_KEY"),
+			Path:      os.Getenv("OBJECT_STORAGE_PATH"),
 		},
 	}
 }

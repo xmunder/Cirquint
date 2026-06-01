@@ -12,6 +12,7 @@ func TestLoadUsesDefaults(t *testing.T) {
 	t.Setenv("OBJECT_STORAGE_ENDPOINT", "")
 	t.Setenv("OBJECT_STORAGE_ACCESS_KEY", "")
 	t.Setenv("OBJECT_STORAGE_SECRET_KEY", "")
+	t.Setenv("OBJECT_STORAGE_PATH", "")
 
 	cfg := Load()
 	if cfg.HTTPAddr != ":8080" {
@@ -44,6 +45,7 @@ func TestLoadUsesEnvironmentValues(t *testing.T) {
 	t.Setenv("OBJECT_STORAGE_ENDPOINT", "https://r2.example.com")
 	t.Setenv("OBJECT_STORAGE_ACCESS_KEY", "access-key")
 	t.Setenv("OBJECT_STORAGE_SECRET_KEY", "secret-key")
+	t.Setenv("OBJECT_STORAGE_PATH", "/var/lib/cirquint/objects")
 
 	cfg := Load()
 	if cfg.HTTPAddr != ":9090" {
@@ -73,6 +75,9 @@ func TestLoadUsesEnvironmentValues(t *testing.T) {
 	if cfg.ObjectStorage.SecretKey != "secret-key" {
 		t.Fatalf("ObjectStorage.SecretKey = %q, want env value", cfg.ObjectStorage.SecretKey)
 	}
+	if cfg.ObjectStorage.Path != "/var/lib/cirquint/objects" {
+		t.Fatalf("ObjectStorage.Path = %q, want env value", cfg.ObjectStorage.Path)
+	}
 }
 
 func TestLoadIgnoresInvalidConfidence(t *testing.T) {
@@ -92,27 +97,27 @@ func TestValidateSharedRuntime(t *testing.T) {
 	}{
 		{
 			name: "missing database url",
-			cfg: Config{ObjectStorage: ObjectStorageConfig{Bucket: "review-bucket", Endpoint: "https://r2.example.com", AccessKey: "key", SecretKey: "secret"}},
+			cfg:  Config{ObjectStorage: ObjectStorageConfig{Bucket: "review-bucket", Endpoint: "https://r2.example.com", AccessKey: "key", SecretKey: "secret"}},
 			want: ErrDatabaseURLRequired,
 		},
 		{
 			name: "missing object storage bucket",
-			cfg: Config{DatabaseURL: "postgres://app:secret@db.internal:5432/cirquint", ObjectStorage: ObjectStorageConfig{Endpoint: "https://r2.example.com", AccessKey: "key", SecretKey: "secret"}},
+			cfg:  Config{DatabaseURL: "postgres://app:secret@db.internal:5432/cirquint", ObjectStorage: ObjectStorageConfig{Endpoint: "https://r2.example.com", AccessKey: "key", SecretKey: "secret"}},
 			want: ErrObjectStorageBucketRequired,
 		},
 		{
 			name: "missing object storage endpoint",
-			cfg: Config{DatabaseURL: "postgres://app:secret@db.internal:5432/cirquint", ObjectStorage: ObjectStorageConfig{Bucket: "review-bucket", AccessKey: "key", SecretKey: "secret"}},
+			cfg:  Config{DatabaseURL: "postgres://app:secret@db.internal:5432/cirquint", ObjectStorage: ObjectStorageConfig{Bucket: "review-bucket", AccessKey: "key", SecretKey: "secret"}},
 			want: ErrObjectStorageEndpointRequired,
 		},
 		{
 			name: "missing object storage access key",
-			cfg: Config{DatabaseURL: "postgres://app:secret@db.internal:5432/cirquint", ObjectStorage: ObjectStorageConfig{Bucket: "review-bucket", Endpoint: "https://r2.example.com", SecretKey: "secret"}},
+			cfg:  Config{DatabaseURL: "postgres://app:secret@db.internal:5432/cirquint", ObjectStorage: ObjectStorageConfig{Bucket: "review-bucket", Endpoint: "https://r2.example.com", SecretKey: "secret"}},
 			want: ErrObjectStorageAccessKeyRequired,
 		},
 		{
 			name: "missing object storage secret key",
-			cfg: Config{DatabaseURL: "postgres://app:secret@db.internal:5432/cirquint", ObjectStorage: ObjectStorageConfig{Bucket: "review-bucket", Endpoint: "https://r2.example.com", AccessKey: "key"}},
+			cfg:  Config{DatabaseURL: "postgres://app:secret@db.internal:5432/cirquint", ObjectStorage: ObjectStorageConfig{Bucket: "review-bucket", Endpoint: "https://r2.example.com", AccessKey: "key"}},
 			want: ErrObjectStorageSecretKeyRequired,
 		},
 	}
