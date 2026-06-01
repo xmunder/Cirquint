@@ -14,7 +14,7 @@ PASS
 
 ## Executive Summary
 
-`go test ./...`, `go test -cover ./...`, and `go vet ./...` all pass. The slice is now warning-free: assertion-quality issues were removed, all spec scenarios are covered by passing tests, and changed-file coverage stays above 80% everywhere.
+`go test ./...`, `go test -cover ./...`, and `go vet ./...` all pass. The slice is warning-free: all spec scenarios are covered by passing tests, changed-file coverage stays above 80% everywhere, and the only stale issue was the report itself.
 
 ---
 
@@ -28,11 +28,11 @@ PASS
 
 ### Execution Results
 
-- Tests: 79 passed / 0 failed / 0 skipped
+- Tests: 80 passed / 0 failed / 0 skipped
 - Type check / vet: passed
 - Build: not run (repo instruction)
 - Total backend coverage: `78.9%`
-- Changed-source average coverage: `91.3%`
+- Changed-source average coverage: `92.2%`
 
 ---
 
@@ -67,10 +67,10 @@ _Changed-area tests only_
 
 | Layer | Tests | Files | Tools |
 |-------|-------|-------|-------|
-| Unit | 53 | 10 | `go test` |
-| Integration | 26 | 2 | `go test`, `net/http/httptest` |
+| Unit | 54 | 10 | `go test` |
+| Integration | 26 | 3 | `go test`, `net/http/httptest` |
 | E2E | 0 | 0 | not installed |
-| **Total** | **79** | **12** | |
+| **Total** | **80** | **13** | |
 
 ---
 
@@ -84,6 +84,7 @@ _Changed-area tests only_
 | `backend/internal/circuit/memory_repository.go` | 91.7% | — | L28-L30 | ✅ Good |
 | `backend/internal/config/config.go` | 100.0% | — | — | ✅ Excellent |
 | `backend/internal/processing/memory_queue.go` | 91.7% | — | L27-L29 | ✅ Excellent |
+| `backend/internal/processing/memory_repository.go` | 96.2% | — | L33-L35 | ✅ Excellent |
 | `backend/internal/processing/processing.go` | 95.2% | — | L100-L102 | ✅ Excellent |
 | `backend/internal/processing/redis_queue.go` | 89.5% | — | L24-L26, L34-L36 | ✅ Good |
 | `backend/internal/provider/provider.go` | 100.0% | — | — | ✅ Excellent |
@@ -92,7 +93,7 @@ _Changed-area tests only_
 | `backend/internal/uploads/uploads.go` | 85.7% | — | L130-L133, L154-L159, L162-L167 | ✅ Good |
 | `backend/internal/worker/worker.go` | 83.3% | — | L34-L36, L45-L48, L76-L79, L91-L93 | ✅ Good |
 
-**Average changed-source coverage**: `91.3%`
+**Average changed-source coverage**: `92.2%`
 
 ---
 
