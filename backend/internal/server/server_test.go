@@ -92,6 +92,87 @@ func TestUploadCreatesQueuedJobAndPollingContract(t *testing.T) {
 	assertGolden(t, "job_status_queued.golden", actual)
 }
 
+func TestRoutesReturnExpectedErrors(t *testing.T) {
+	handler := newTestServer()
+
+	t.Run("workspace invalid json", func(t *testing.T) {
+		response := performRequest(t, handler, http.MethodPost, "/workspaces", bytes.NewBufferString("{"))
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want %d", response.Code, http.StatusBadRequest)
+		}
+	})
+
+	t.Run("job not found", func(t *testing.T) {
+		response := performRequest(t, handler, http.MethodGet, "/jobs/missing", nil)
+		if response.Code != http.StatusNotFound {
+			t.Fatalf("status = %d, want %d", response.Code, http.StatusNotFound)
+		}
+	})
+
+	t.Run("upload missing file", func(t *testing.T) {
+		var body bytes.Buffer
+		writer := multipart.NewWriter(&body)
+		if err := writer.Close(); err != nil {
+			t.Fatalf("close multipart writer: %v", err)
+		}
+		req := httptest.NewRequest(http.MethodPost, "/projects/prj-001/uploads", &body)
+		req.Header.Set("Content-Type", writer.FormDataContentType())
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, req)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want %d", response.Code, http.StatusBadRequest)
+		}
+	})
+
+	t.Run("unknown route", func(t *testing.T) {
+		response := performRequest(t, handler, http.MethodGet, "/missing", nil)
+		if response.Code != http.StatusNotFound {
+			t.Fatalf("status = %d, want %d", response.Code, http.StatusNotFound)
+		}
+	})
+
+	t.Run("project invalid json", func(t *testing.T) {
+		workspaceBody := performJSONRequest(t, handler, http.MethodPost, "/workspaces", map[string]string{"name": "Workspace Alpha"})
+		workspaceID := workspaceBody["id"].(string)
+		response := performRequest(t, handler, http.MethodPost, "/workspaces/"+workspaceID+"/projects", bytes.NewBufferString("{"))
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want %d", response.Code, http.StatusBadRequest)
+		}
+	})
+
+	t.Run("upload unsupported type", func(t *testing.T) {
+		workspaceBody := performJSONRequest(t, handler, http.MethodPost, "/workspaces", map[string]string{"name": "Workspace Beta"})
+		workspaceID := workspaceBody["id"].(string)
+		projectBody := performJSONRequest(t, handler, http.MethodPost, "/workspaces/"+workspaceID+"/projects", map[string]string{"name": "Project Two"})
+		projectID := projectBody["id"].(string)
+		response := performMultipartRequest(t, handler, http.MethodPost, "/projects/"+projectID+"/uploads", "diagram.gif", "image/gif", []byte("data"))
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want %d", response.Code, http.StatusBadRequest)
+		}
+	})
+
+	t.Run("project not found", func(t *testing.T) {
+		response := performRequest(t, handler, http.MethodGet, "/projects/missing-project", nil)
+		if response.Code != http.StatusNotFound {
+			t.Fatalf("status = %d, want %d", response.Code, http.StatusNotFound)
+		}
+	})
+
+	t.Run("workspace name required", func(t *testing.T) {
+		response := performJSONRequestExpectingStatus(t, handler, http.MethodPost, "/workspaces", map[string]string{"name": ""}, http.StatusBadRequest)
+		if response["error"] == "" {
+			t.Fatal("expected validation error message")
+		}
+	})
+
+	t.Run("workspace not found for project creation", func(t *testing.T) {
+		response := performJSONRequestExpectingStatus(t, handler, http.MethodPost, "/workspaces/missing/projects", map[string]string{"name": "Project Ghost"}, http.StatusNotFound)
+		if response["error"] != "workspace not found" {
+			t.Fatalf("error = %v, want workspace not found", response["error"])
+		}
+	})
+}
+
 func newTestServer() http.Handler {
 	return newTestServerWithIDs("ws-001", "prj-001", "prj-002", "job-001")
 }
@@ -105,6 +186,11 @@ func newTestServerWithIDs(ids ...string) http.Handler {
 
 func performJSONRequest(t *testing.T, handler http.Handler, method, path string, body any) map[string]any {
 	t.Helper()
+	return performJSONRequestExpectingStatus(t, handler, method, path, body, http.StatusCreated)
+}
+
+func performJSONRequestExpectingStatus(t *testing.T, handler http.Handler, method, path string, body any, wantStatus int) map[string]any {
+	t.Helper()
 
 	payload, err := json.Marshal(body)
 	if err != nil {
@@ -112,7 +198,7 @@ func performJSONRequest(t *testing.T, handler http.Handler, method, path string,
 	}
 
 	response := performRequest(t, handler, method, path, bytes.NewReader(payload))
-	if response.Code != http.StatusCreated {
+	if response.Code != wantStatus {
 		t.Fatalf("unexpected status %d", response.Code)
 	}
 

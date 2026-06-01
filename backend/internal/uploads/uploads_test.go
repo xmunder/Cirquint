@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"mime/multipart"
+	"net/textproto"
 	"testing"
 	"time"
 
@@ -13,6 +15,10 @@ import (
 	"github.com/msi/circuit-storys/backend/internal/uploads"
 	"github.com/msi/circuit-storys/backend/internal/workspace"
 )
+
+type multipartBuffer struct{ *bytes.Reader }
+
+func (multipartBuffer) Close() error { return nil }
 
 func TestUploadSuccessQueuesJob(t *testing.T) {
 	uploadRepo := uploads.NewMemoryRepository()
@@ -165,10 +171,15 @@ func (g *sequenceIDs) NewID() string {
 
 type failingUploadRepo struct {
 	stored    uploads.Upload
+	deleted   []string
+	createErr error
 	updateErr error
 }
 
 func (r *failingUploadRepo) CreateUpload(_ context.Context, upload uploads.Upload) error {
+	if r.createErr != nil {
+		return r.createErr
+	}
 	r.stored = upload
 	return nil
 }
@@ -184,14 +195,21 @@ func (r *failingUploadRepo) GetUpload(_ context.Context, uploadID string) (uploa
 	return r.stored, nil
 }
 
-func (r *failingUploadRepo) DeleteUpload(_ context.Context, _ string) error { return nil }
+func (r *failingUploadRepo) DeleteUpload(_ context.Context, uploadID string) error {
+	r.deleted = append(r.deleted, uploadID)
+	if r.stored.ID == uploadID {
+		r.stored = uploads.Upload{}
+	}
+	return nil
+}
 
 func TestUploadDBFailureAfterStorageDeletesStoredObject(t *testing.T) {
 	jobRepo := processing.NewMemoryRepository()
 	objectStorage := &fakeObjectStorage{}
+	uploadRepo := &failingUploadRepo{updateErr: errors.New("db failed")}
 	service := uploads.NewService(
 		fakeProjects{project: workspace.Project{ID: "prj-001", WorkspaceID: "ws-001", Name: "Project One"}},
-		&failingUploadRepo{updateErr: errors.New("db failed")},
+		uploadRepo,
 		objectStorage,
 		processing.NewService(jobRepo, fixedClock{now: time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC)}, &sequenceIDs{ids: []string{"job-001"}}),
 		fixedClock{now: time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC)},
@@ -218,7 +236,209 @@ func TestUploadDBFailureAfterStorageDeletesStoredObject(t *testing.T) {
 	if _, err := jobRepo.GetJob(context.Background(), "job-001"); !errors.Is(err, processing.ErrJobNotFound) {
 		t.Fatalf("expected job cleanup, got %v", err)
 	}
-	if _, err := (&failingUploadRepo{}).GetUpload(context.Background(), "up-001"); err == nil {
-		t.Fatal("expected missing upload lookup in empty repo stub")
+	if len(uploadRepo.deleted) != 1 || uploadRepo.deleted[0] != "up-001" {
+		t.Fatalf("expected upload cleanup call for up-001, got %v", uploadRepo.deleted)
 	}
+	if _, err := uploadRepo.GetUpload(context.Background(), "up-001"); !errors.Is(err, uploads.ErrUploadNotFound) {
+		t.Fatalf("expected upload cleanup in repository, got %v", err)
+	}
+}
+
+func TestUploadRejectsInvalidInput(t *testing.T) {
+	service := uploads.NewService(
+		fakeProjects{project: workspace.Project{ID: "prj-001", WorkspaceID: "ws-001", Name: "Project One"}},
+		uploads.NewMemoryRepository(),
+		&fakeObjectStorage{},
+		processing.NewService(processing.NewMemoryRepository(), fixedClock{now: time.Now()}, &sequenceIDs{}),
+		fixedClock{now: time.Now()},
+		&sequenceIDs{},
+	)
+
+	tests := []struct {
+		name      string
+		projectID string
+		request   uploads.UploadRequest
+		wantErr   error
+	}{
+		{name: "missing project", request: uploads.UploadRequest{Filename: "diagram.png", ContentType: "image/png", Body: bytes.NewBufferString("data")}, wantErr: uploads.ErrProjectIDRequired},
+		{name: "missing file", projectID: "prj-001", request: uploads.UploadRequest{}, wantErr: uploads.ErrFileRequired},
+		{name: "unsupported type", projectID: "prj-001", request: uploads.UploadRequest{Filename: "diagram.gif", ContentType: "image/gif", Body: bytes.NewBufferString("data")}, wantErr: uploads.ErrUnsupportedImage},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := service.Upload(context.Background(), tt.projectID, tt.request)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("Upload error = %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestReadFormFileUsesHeaderFallbackContentType(t *testing.T) {
+	header := &multipart.FileHeader{
+		Filename: "diagram.jpeg",
+		Size:     4,
+		Header:   textproto.MIMEHeader{},
+	}
+	request, err := uploads.ReadFormFile(multipartBuffer{Reader: bytes.NewReader([]byte("data"))}, header)
+	if err != nil {
+		t.Fatalf("ReadFormFile error = %v", err)
+	}
+	if request.ContentType != "image/jpeg" {
+		t.Fatalf("ContentType = %q, want image/jpeg", request.ContentType)
+	}
+}
+
+func TestReadFormFileRejectsMissingInputs(t *testing.T) {
+	if _, err := uploads.ReadFormFile(nil, nil); !errors.Is(err, uploads.ErrFileRequired) {
+		t.Fatalf("ReadFormFile error = %v, want %v", err, uploads.ErrFileRequired)
+	}
+}
+
+func TestReadFormFilePreservesExplicitContentType(t *testing.T) {
+	header := &multipart.FileHeader{
+		Filename: "diagram.png",
+		Size:     4,
+		Header:   textproto.MIMEHeader{"Content-Type": []string{"image/png; charset=utf-8"}},
+	}
+	request, err := uploads.ReadFormFile(multipartBuffer{Reader: bytes.NewReader([]byte("data"))}, header)
+	if err != nil {
+		t.Fatalf("ReadFormFile error = %v", err)
+	}
+	if request.ContentType != "image/png; charset=utf-8" {
+		t.Fatalf("ContentType = %q, want explicit header value", request.ContentType)
+	}
+}
+
+func TestUploadReturnsProjectLookupError(t *testing.T) {
+	service := uploads.NewService(
+		fakeProjects{project: workspace.Project{ID: "other", WorkspaceID: "ws-001", Name: "Project One"}},
+		uploads.NewMemoryRepository(),
+		&fakeObjectStorage{},
+		processing.NewService(processing.NewMemoryRepository(), fixedClock{now: time.Now()}, &sequenceIDs{ids: []string{"job-001"}}),
+		fixedClock{now: time.Now()},
+		&sequenceIDs{ids: []string{"up-001"}},
+	)
+
+	_, err := service.Upload(context.Background(), "prj-001", uploads.UploadRequest{
+		Filename:    "diagram.png",
+		ContentType: "image/png",
+		SizeBytes:   4,
+		Body:        bytes.NewBufferString("data"),
+	})
+	if !errors.Is(err, workspace.ErrProjectNotFound) {
+		t.Fatalf("Upload error = %v, want %v", err, workspace.ErrProjectNotFound)
+	}
+}
+
+func TestUploadReturnsRepositoryCreateError(t *testing.T) {
+	wantErr := errors.New("create upload failed")
+	service := uploads.NewService(
+		fakeProjects{project: workspace.Project{ID: "prj-001", WorkspaceID: "ws-001", Name: "Project One"}},
+		&failingUploadRepo{createErr: wantErr},
+		&fakeObjectStorage{},
+		processing.NewService(processing.NewMemoryRepository(), fixedClock{now: time.Now()}, &sequenceIDs{ids: []string{"job-001"}}),
+		fixedClock{now: time.Now()},
+		&sequenceIDs{ids: []string{"up-001"}},
+	)
+
+	_, err := service.Upload(context.Background(), "prj-001", uploads.UploadRequest{
+		Filename:    "diagram.png",
+		ContentType: "image/png",
+		SizeBytes:   4,
+		Body:        bytes.NewBufferString("data"),
+	})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("Upload error = %v, want %v", err, wantErr)
+	}
+}
+
+func TestUploadCleansUpWhenEnqueueFails(t *testing.T) {
+	jobRepo := processing.NewMemoryRepository()
+	objectStorage := &fakeObjectStorage{}
+	queue := failingQueue{err: errors.New("enqueue failed")}
+	jobs := processing.NewService(jobRepo, fixedClock{now: time.Now()}, &sequenceIDs{ids: []string{"job-001"}}).WithQueue(queue)
+	uploadRepo := uploads.NewMemoryRepository()
+	service := uploads.NewService(
+		fakeProjects{project: workspace.Project{ID: "prj-001", WorkspaceID: "ws-001", Name: "Project One"}},
+		uploadRepo,
+		objectStorage,
+		jobs,
+		fixedClock{now: time.Now()},
+		&sequenceIDs{ids: []string{"up-001"}},
+	)
+
+	_, err := service.Upload(context.Background(), "prj-001", uploads.UploadRequest{
+		Filename:    "diagram.png",
+		ContentType: "image/png",
+		SizeBytes:   4,
+		Body:        bytes.NewBufferString("data"),
+	})
+	if err == nil {
+		t.Fatal("expected enqueue failure")
+	}
+	if _, err := jobRepo.GetJob(context.Background(), "job-001"); !errors.Is(err, processing.ErrJobNotFound) {
+		t.Fatalf("expected job cleanup, got %v", err)
+	}
+	if _, err := uploadRepo.GetUpload(context.Background(), "up-001"); !errors.Is(err, uploads.ErrUploadNotFound) {
+		t.Fatalf("expected upload cleanup, got %v", err)
+	}
+	if len(objectStorage.deletedKeys) != 1 {
+		t.Fatalf("expected stored object delete, got %d deletes", len(objectStorage.deletedKeys))
+	}
+}
+
+func TestUploadInfersContentTypeFromFilename(t *testing.T) {
+	service := uploads.NewService(
+		fakeProjects{project: workspace.Project{ID: "prj-001", WorkspaceID: "ws-001", Name: "Project One"}},
+		uploads.NewMemoryRepository(),
+		&fakeObjectStorage{},
+		processing.NewService(processing.NewMemoryRepository(), fixedClock{now: time.Now()}, &sequenceIDs{ids: []string{"job-001"}}),
+		fixedClock{now: time.Now()},
+		&sequenceIDs{ids: []string{"up-001"}},
+	)
+
+	result, err := service.Upload(context.Background(), "prj-001", uploads.UploadRequest{
+		Filename:  "diagram.webp",
+		SizeBytes: 4,
+		Body:      bytes.NewBufferString("data"),
+	})
+	if err != nil {
+		t.Fatalf("Upload error = %v", err)
+	}
+	if result.Upload.ContentType != "image/webp" {
+		t.Fatalf("ContentType = %q, want image/webp", result.Upload.ContentType)
+	}
+}
+
+func TestUploadNormalizesContentTypeParameters(t *testing.T) {
+	service := uploads.NewService(
+		fakeProjects{project: workspace.Project{ID: "prj-001", WorkspaceID: "ws-001", Name: "Project One"}},
+		uploads.NewMemoryRepository(),
+		&fakeObjectStorage{},
+		processing.NewService(processing.NewMemoryRepository(), fixedClock{now: time.Now()}, &sequenceIDs{ids: []string{"job-001"}}),
+		fixedClock{now: time.Now()},
+		&sequenceIDs{ids: []string{"up-001"}},
+	)
+
+	result, err := service.Upload(context.Background(), "prj-001", uploads.UploadRequest{
+		Filename:    "diagram.png",
+		ContentType: "image/png; charset=utf-8",
+		SizeBytes:   4,
+		Body:        bytes.NewBufferString("data"),
+	})
+	if err != nil {
+		t.Fatalf("Upload error = %v", err)
+	}
+	if result.Upload.ContentType != "image/png" {
+		t.Fatalf("ContentType = %q, want image/png", result.Upload.ContentType)
+	}
+}
+
+type failingQueue struct{ err error }
+
+func (q failingQueue) Enqueue(context.Context, processing.Payload) error { return q.err }
+func (q failingQueue) Dequeue(context.Context) (processing.Payload, error) {
+	return processing.Payload{}, processing.ErrQueueEmpty
 }

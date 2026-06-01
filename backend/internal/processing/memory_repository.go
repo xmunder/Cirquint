@@ -2,6 +2,7 @@ package processing
 
 import (
 	"context"
+	"sort"
 	"sync"
 	"time"
 )
@@ -49,6 +50,25 @@ func (r *MemoryRepository) GetJob(_ context.Context, jobID string) (Job, error) 
 		return Job{}, ErrJobNotFound
 	}
 	return job, nil
+}
+
+func (r *MemoryRepository) ListJobsByProjectStatus(_ context.Context, projectID string, status JobStatus) ([]Job, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	jobs := make([]Job, 0)
+	for _, job := range r.jobs {
+		if job.ProjectID == projectID && job.Status == status {
+			jobs = append(jobs, job)
+		}
+	}
+	sort.Slice(jobs, func(i, j int) bool {
+		if jobs[i].UpdatedAt.Equal(jobs[j].UpdatedAt) {
+			return jobs[i].ID < jobs[j].ID
+		}
+		return jobs[i].UpdatedAt.Before(jobs[j].UpdatedAt)
+	})
+	return jobs, nil
 }
 
 func (r *MemoryRepository) DeleteJob(_ context.Context, jobID string) error {

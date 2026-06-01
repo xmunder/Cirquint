@@ -39,12 +39,12 @@ Chain strategy: feature-branch-chain
 
 ## Phase 3: Extraction and Review Slice
 
-- [ ] 3.1 Crear `backend/cmd/worker/main.go`, `backend/internal/processing/` y cola Redis para reclamar solo jobs `queued` y pasar a `extracting` con compare-and-swap.
-- [ ] 3.2 Crear `backend/internal/provider/` con `CircuitExtractionProvider` mockeable y una implementación inicial detrás de la interfaz.
-- [ ] 3.3 Crear `backend/internal/circuit/` para persistir `ExtractionResult`, normalizar `CircuitSpec` y decidir `ready` o `needs_review` por `confidence` y warnings.
-- [ ] 3.4 Agregar tests de tabla para review policy e idempotencia, más un test de integración worker->persistencia que cubra `ready`, `needs_review` y `failed`.
+- [x] 3.1 Crear `backend/cmd/worker/main.go`, `backend/internal/processing/` y cola Redis para reclamar solo jobs `queued` y pasar a `extracting` con compare-and-swap.
+- [x] 3.2 Crear `backend/internal/provider/` con `CircuitExtractionProvider` mockeable y una implementación inicial detrás de la interfaz.
+- [x] 3.3 Crear `backend/internal/circuit/` para persistir `ExtractionResult`, normalizar `CircuitSpec` y decidir `ready` o `needs_review` por `confidence` y warnings.
+- [x] 3.4 Agregar tests de tabla para review policy e idempotencia, más un test de integración worker->persistencia que cubra `ready`, `needs_review` y `failed`.
 
 ## Phase 4: Verification and Scope Guard
 
-- [ ] 4.1 Verificar que ningún flujo genere `AssemblyPlan`, `SceneSpec` ni payloads de viewer; dejar assertion explícita en tests de `circuit-extraction-review/spec.md`.
-- [ ] 4.2 Documentar configuración mínima y threshold pendiente en `backend/README.md` o equivalente, dejando el valor exacto como decisión abierta del MVP.
+- [x] 4.1 Verificar que ningún flujo genere `AssemblyPlan`, `SceneSpec` ni payloads de viewer; dejar assertion explícita en tests de `circuit-extraction-review/spec.md`.
+- [x] 4.2 Documentar configuración mínima y threshold pendiente en `backend/README.md` o equivalente, dejando el valor exacto como decisión abierta del MVP.

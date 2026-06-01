@@ -19,6 +19,10 @@ func newMemoryBucket() *memoryBucket {
 	return &memoryBucket{objects: map[string][]byte{}}
 }
 
+func NewMemoryObjectStorage() *storage.R2Storage {
+	return storage.NewR2Storage(newMemoryBucket())
+}
+
 func (b *memoryBucket) Put(_ context.Context, key string, body io.Reader, _ storage.ObjectMeta) (storage.StoredObject, error) {
 	payload, err := io.ReadAll(body)
 	if err != nil {

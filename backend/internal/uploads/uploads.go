@@ -166,6 +166,13 @@ func (s *Service) Upload(ctx context.Context, projectID string, request UploadRe
 		return UploadResult{}, err
 	}
 
+	if err := s.jobs.Enqueue(ctx, job); err != nil {
+		_ = s.storage.Delete(ctx, upload.StorageKey)
+		_ = s.jobs.DeleteJob(ctx, job.ID)
+		_ = s.repo.DeleteUpload(ctx, upload.ID)
+		return UploadResult{}, err
+	}
+
 	return UploadResult{Upload: upload, Job: job}, nil
 }
 
